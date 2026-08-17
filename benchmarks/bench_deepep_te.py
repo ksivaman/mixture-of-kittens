@@ -1,5 +1,6 @@
 """Benchmarks used DeepEP 2.1.0+gitdd758caf, Transformer Engine 2.17.0+git2e559f06, PyTorch 2.13.0+cu130, NCCL 2.30.7, cuBLAS 13.6.0.2, CUDA 13.0"""
 
+import argparse
 from dataclasses import dataclass
 import os
 
@@ -12,7 +13,7 @@ from transformer_engine.pytorch import autocast, quantized_model_init
 from transformer_engine.pytorch.ops import GroupedLinear
 from transformer_engine.pytorch.permutation import moe_permute, moe_permute_and_pad_with_probs, moe_unpermute
 
-from benchmarks.utils import benchmark_bwd, benchmark_fwd, check_benchmark_correctness, get_num_local_experts, get_tflops, init_distributed
+from benchmarks.utils import benchmark_bwd, benchmark_fwd, check_benchmark_correctness, get_num_local_experts, get_tflops, init_distributed, profile_benchmark
 from tests.utils import BF16_TOLERANCE, MXFP8_TOLERANCE, generate_inputs, run_reference_bf16
 
 
@@ -222,7 +223,20 @@ class DeepEpTransformerEngineBenchmark:
         self.buffer.destroy()
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--profile",
+        nargs="?",
+        const="profiles",
+        metavar="OUTPUT_DIR",
+        help="Use torch.profiler and write Chrome trace/table files (default: profiles).",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     rank, world_size, device = init_distributed()
     num_local_experts = get_num_local_experts(NUM_EXPERTS, world_size)
     inputs = generate_inputs(rank, device, NUM_EXPERTS, num_local_experts, TOPK, NUM_LOCAL_TOKENS, HIDDEN_DIM, INTERMEDIATE_DIM)
@@ -244,12 +258,21 @@ def main():
         check_benchmark_correctness(name, run_fwd, run_bwd, reference, tolerance, rank)
         del reference
 
-        fwd_ms = benchmark_fwd(run_fwd, device)
-        bwd_ms = benchmark_bwd(run_fwd, run_bwd, device)
-        if rank == 0:
-            fwd_tflops = get_tflops(fwd_ms, NUM_LOCAL_TOKENS, TOPK, HIDDEN_DIM, INTERMEDIATE_DIM)
-            bwd_tflops = get_tflops(bwd_ms, NUM_LOCAL_TOKENS, TOPK, HIDDEN_DIM, INTERMEDIATE_DIM, backward=True)
-            print(f"{name}: forward {fwd_ms:.3f} ms, {fwd_tflops:.1f} TFLOP/s; backward {bwd_ms:.3f} ms, {bwd_tflops:.1f} TFLOP/s")
+        if args.profile is not None:
+            profile_benchmark(
+                name,
+                run_fwd,
+                run_bwd,
+                args.profile,
+                rank,
+            )
+        else:
+            fwd_ms = benchmark_fwd(run_fwd, device)
+            bwd_ms = benchmark_bwd(run_fwd, run_bwd, device)
+            if rank == 0:
+                fwd_tflops = get_tflops(fwd_ms, NUM_LOCAL_TOKENS, TOPK, HIDDEN_DIM, INTERMEDIATE_DIM)
+                bwd_tflops = get_tflops(bwd_ms, NUM_LOCAL_TOKENS, TOPK, HIDDEN_DIM, INTERMEDIATE_DIM, backward=True)
+                print(f"{name}: forward {fwd_ms:.3f} ms, {fwd_tflops:.1f} TFLOP/s; backward {bwd_ms:.3f} ms, {bwd_tflops:.1f} TFLOP/s")
         benchmark.destroy()
         del benchmark
 

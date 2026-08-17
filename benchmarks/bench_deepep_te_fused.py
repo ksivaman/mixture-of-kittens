@@ -17,6 +17,13 @@ def parse_args():
         action="store_true",
         help="Use Transformer Engine expert parallelism instead of DeepEP.",
     )
+    parser.add_argument(
+        "--profile",
+        nargs="?",
+        const="profiles",
+        metavar="OUTPUT_DIR",
+        help="Use torch.profiler and write Chrome trace/table files (default: profiles).",
+    )
     return parser.parse_args()
 
 
@@ -43,7 +50,7 @@ from transformer_engine.pytorch.ops.fused import GroupedMLP_CuTeGEMMGLU
 from transformer_engine.pytorch.permutation import moe_permute_and_pad_with_probs, moe_unpermute
 from transformer_engine.pytorch.utils import deinterleave_glu_tensor, interleave_glu_tensor
 
-from benchmarks.utils import benchmark_bwd, benchmark_fwd, check_benchmark_correctness, get_num_local_experts, get_tflops, init_distributed
+from benchmarks.utils import benchmark_bwd, benchmark_fwd, check_benchmark_correctness, get_num_local_experts, get_tflops, init_distributed, profile_benchmark
 from tests.utils import MXFP8_TOLERANCE, generate_inputs, run_reference_bf16
 
 
@@ -526,28 +533,37 @@ def main(args):
     benchmark.assert_fused_grouped_mlp()
     del reference
 
-    fwd_ms = benchmark_fwd(run_fwd, device)
-    bwd_ms = benchmark_bwd(run_fwd, run_bwd, device)
-    if rank == 0:
-        fwd_tflops = get_tflops(
-            fwd_ms,
-            NUM_LOCAL_TOKENS,
-            TOPK,
-            HIDDEN_DIM,
-            INTERMEDIATE_DIM,
+    if args.profile is not None:
+        profile_benchmark(
+            name,
+            run_fwd,
+            run_bwd,
+            args.profile,
+            rank,
         )
-        bwd_tflops = get_tflops(
-            bwd_ms,
-            NUM_LOCAL_TOKENS,
-            TOPK,
-            HIDDEN_DIM,
-            INTERMEDIATE_DIM,
-            backward=True,
-        )
-        print(
-            f"{name}: forward {fwd_ms:.3f} ms, {fwd_tflops:.1f} TFLOP/s; "
-            f"backward {bwd_ms:.3f} ms, {bwd_tflops:.1f} TFLOP/s"
-        )
+    else:
+        fwd_ms = benchmark_fwd(run_fwd, device)
+        bwd_ms = benchmark_bwd(run_fwd, run_bwd, device)
+        if rank == 0:
+            fwd_tflops = get_tflops(
+                fwd_ms,
+                NUM_LOCAL_TOKENS,
+                TOPK,
+                HIDDEN_DIM,
+                INTERMEDIATE_DIM,
+            )
+            bwd_tflops = get_tflops(
+                bwd_ms,
+                NUM_LOCAL_TOKENS,
+                TOPK,
+                HIDDEN_DIM,
+                INTERMEDIATE_DIM,
+                backward=True,
+            )
+            print(
+                f"{name}: forward {fwd_ms:.3f} ms, {fwd_tflops:.1f} TFLOP/s; "
+                f"backward {bwd_ms:.3f} ms, {bwd_tflops:.1f} TFLOP/s"
+            )
     benchmark.destroy()
     del benchmark
 

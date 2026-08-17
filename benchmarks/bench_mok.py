@@ -1,8 +1,9 @@
+import argparse
 import os
 
 import torch.distributed as dist
 
-from benchmarks.utils import benchmark_bwd, benchmark_fwd, check_benchmark_correctness, get_num_local_experts, get_tflops, init_distributed
+from benchmarks.utils import benchmark_bwd, benchmark_fwd, check_benchmark_correctness, get_num_local_experts, get_tflops, init_distributed, profile_benchmark
 from mok import functional, ops
 from tests.utils import BF16_TOLERANCE, MXFP8_TOLERANCE, generate_inputs, run_reference_bf16
 
@@ -124,7 +125,20 @@ class MoKBenchmark:
         )
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--profile",
+        nargs="?",
+        const="profiles",
+        metavar="OUTPUT_DIR",
+        help="Use torch.profiler and write Chrome trace/table files (default: profiles).",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     rank, world_size, device = init_distributed()
     num_local_experts = get_num_local_experts(NUM_EXPERTS, world_size)
     inputs = generate_inputs(rank, device, NUM_EXPERTS, num_local_experts, TOPK, NUM_LOCAL_TOKENS, HIDDEN_DIM, INTERMEDIATE_DIM)
@@ -144,6 +158,15 @@ def main() -> None:
     del reference
 
     for precision, run_fwd, run_bwd, _ in variants:
+        if args.profile is not None:
+            profile_benchmark(
+                f"MoK {precision}",
+                run_fwd,
+                run_bwd,
+                args.profile,
+                rank,
+            )
+            continue
         fwd_ms = benchmark_fwd(run_fwd, device)
         bwd_ms = benchmark_bwd(run_fwd, run_bwd, device)
         if rank == 0:
