@@ -21,7 +21,7 @@ NUM_EXPERTS = int(os.environ.get("NUM_EXPERTS", 384))
 TOPK = int(os.environ.get("TOPK", 6))
 BF16_COMM_SMS = int(os.environ.get("BF16_COMM_SMS", 32))
 MXFP8_COMM_SMS = int(os.environ.get("MXFP8_COMM_SMS", 24))
-MXFP8_ALIGNMENT = int(os.environ.get("MXFP8_ALIGNMENT", 128))
+MXFP8_ALIGNMENT = int(os.environ.get("MXFP8_ALIGNMENT", 256))
 ENABLE_TORCH_COMPILE = True
 
 

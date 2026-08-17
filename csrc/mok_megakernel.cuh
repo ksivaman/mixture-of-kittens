@@ -1430,7 +1430,7 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
                 update_phasebit<0>(gemm_bitfield, input_ring);
                 input_ring = ring_advance<config::MLP_LOAD_PIPE_DEPTH>(input_ring);
             }
-            detail::tcgen05::commit<config::CLUSTER_SIZE>(gemm_outputs_arrived);
+            kittens::detail::tcgen05::commit<config::CLUSTER_SIZE>(gemm_outputs_arrived);
         }
     } else {
         using epilogue_group = group<WARPGROUP_WARPS>;
